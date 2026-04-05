@@ -252,7 +252,11 @@ function DailyActionsSection({ daily }) {
   );
 }
 
-/* ─── Ana sayfa ───────────────────────────────────────────────────────────── */
+/** Convert an action string from a daily_actions array to a display string.
+ * The backend may return either a plain string or a non-string value. */
+function toActionString(a, fallback) {
+  return typeof a === 'string' && a.trim() ? a : fallback;
+}
 
 export default function Analysis() {
   const [result, setResult]         = useState(null);
@@ -305,7 +309,9 @@ export default function Analysis() {
             allRecs.push(
               ...d.recommendations.map(r => ({
                 ...r,
-                // normalise single-stock fields → portfolio-style names
+                // The single-stock analyzer returns `long_term` while the portfolio
+                // analyzer returns `mid_term`. Normalise to `mid_term` so the UI
+                // (which was built for the portfolio format) renders both sources.
                 mid_term:   r.mid_term   ?? r.long_term,
                 risk_level: r.risk_level ?? (r.risk ? r.risk.toUpperCase() : undefined),
                 confidence: r.confidence ? r.confidence.toUpperCase() : undefined,
@@ -317,10 +323,10 @@ export default function Analysis() {
 
           if (d.daily_actions) {
             const da = d.daily_actions;
-            (da.buy   ?? []).forEach(a => urgent.push(typeof a === 'string' ? a : `AL: ${symbol}`));
-            (da.add   ?? []).forEach(a => urgent.push(typeof a === 'string' ? a : `EKLE: ${symbol}`));
-            (da.watch ?? []).forEach(a => watch.push(typeof a === 'string'  ? a : `İZLE: ${symbol}`));
-            (da.avoid ?? []).forEach(a => hold.push(typeof a === 'string'   ? a : `KAÇIN: ${symbol}`));
+            (da.buy   ?? []).forEach(a => urgent.push(toActionString(a, `AL: ${symbol}`)));
+            (da.add   ?? []).forEach(a => urgent.push(toActionString(a, `EKLE: ${symbol}`)));
+            (da.watch ?? []).forEach(a => watch.push(toActionString(a, `İZLE: ${symbol}`)));
+            (da.avoid ?? []).forEach(a => hold.push(toActionString(a, `KAÇIN: ${symbol}`)));
           }
         } else {
           allAlerts.push({ symbol, alert_type: 'DİKKAT', message: `${symbol} analizi alınamadı.` });
@@ -368,8 +374,11 @@ export default function Analysis() {
     schedulerRef.current = setInterval(() => {
       const autoEnabled = localStorage.getItem('autoAnalysis') === 'true';
       if (!autoEnabled) return;
-      const now   = new Date();
-      if (now.getHours() === 9 && now.getMinutes() === 30) {
+      const now     = new Date();
+      const hours   = now.getHours();
+      const minutes = now.getMinutes();
+      // Accept the 09:30–09:31 window to tolerate setInterval drift of up to ~60 s.
+      if (hours === 9 && (minutes === 30 || minutes === 31)) {
         const today = now.toDateString();
         if (lastAutoRunDateRef.current !== today) {
           lastAutoRunDateRef.current = today;

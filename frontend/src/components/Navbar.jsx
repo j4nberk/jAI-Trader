@@ -8,7 +8,7 @@ import { NavLink } from 'react-router-dom';
 const links = [
   { to: '/dashboard',        label: 'Dashboard', icon: '📊' },
   { to: '/analysis',         label: 'Analysis',  icon: '🔍' },
-  { to: '/portfolio-analysis', label: 'Analiz',  icon: '🤖' },
+  { to: '/portfolio-analysis', label: 'Portföy Analizi', icon: '🤖' },
   { to: '/news',             label: 'News',       icon: '📰' },
   { to: '/portfolio',        label: 'Portföy',   icon: '💼' },
 ];
