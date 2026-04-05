@@ -41,6 +41,9 @@ export const deleteWatchlistItem   = (id)         => api.delete(`/api/watchlist/
 export const fetchTransactions     = ()           => api.get('/api/transactions');
 export const addTransaction        = (data)       => api.post('/api/transactions', data);
 
+// Market news
+export const fetchMarketNews = (limit = 20) => api.get('/news', { params: { limit } });
+
 // Portfolio-wide AI analysis
 export const fetchPortfolioAnalysis = (newsLimit = 10) =>
   api.get('/analyze', { params: { news_limit: newsLimit }, timeout: PORTFOLIO_ANALYSIS_TIMEOUT_MS });

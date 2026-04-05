@@ -10,6 +10,7 @@ import StockAnalysis from './pages/StockAnalysis';
 import News from './pages/News';
 import Portfolio from './pages/Portfolio';
 import MarketAnalysis from './pages/MarketAnalysis';
+import Analysis from './pages/Analysis';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/analysis" element={<StockAnalysis />} />
           <Route path="/analysis/:symbol" element={<StockAnalysis />} />
           <Route path="/market-analysis" element={<MarketAnalysis />} />
+          <Route path="/portfolio-analysis" element={<Analysis />} />
           <Route path="/news" element={<News />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
