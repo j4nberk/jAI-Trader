@@ -24,6 +24,20 @@ from data.market_data import (
     get_market_news,
     get_portfolio_prices,
 )
+from data.portfolio import (
+    db_list_portfolio,
+    db_get_portfolio_item,
+    db_add_portfolio_item,
+    db_update_portfolio_item,
+    db_delete_portfolio_item,
+    db_list_watchlist,
+    db_get_watchlist_item,
+    db_add_watchlist_item,
+    db_update_watchlist_item,
+    db_delete_watchlist_item,
+    db_list_transactions,
+    db_add_transaction,
+)
 from llm.analyzer import analyze
 from llm.portfolio_analyzer import analyze_portfolio
 from database.db import get_db, init_db
@@ -259,9 +273,7 @@ async def portfolio_prices():
     """
     try:
         async with get_db() as db:
-            cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
-            rows = await cursor.fetchall()
-            items = [dict(row) for row in rows]
+            items = await db_list_portfolio(db)
         enriched = get_portfolio_prices(items)
         total_cost = sum(i["cost_basis"] for i in enriched if i["cost_basis"] is not None)
         total_value = sum(i["current_value"] for i in enriched if i["current_value"] is not None)
@@ -325,9 +337,7 @@ async def analyze_portfolio_endpoint(
     """
     try:
         async with get_db() as db:
-            cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
-            rows = await cursor.fetchall()
-            portfolio = [dict(row) for row in rows]
+            portfolio = await db_list_portfolio(db)
 
         prices = get_portfolio_prices(portfolio)
         news = get_market_news(limit=news_limit)
@@ -348,58 +358,36 @@ async def analyze_portfolio_endpoint(
 async def list_portfolio():
     """Return all portfolio positions."""
     async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return await db_list_portfolio(db)
 
 
 @app.post("/api/portfolio", tags=["portfolio"], status_code=201)
 async def add_portfolio(item: PortfolioCreate):
     """Add a new position to the portfolio."""
     async with get_db() as db:
-        if item.date_added:
-            cursor = await db.execute(
-                "INSERT INTO portfolio (symbol, type, quantity, avg_cost, date_added) VALUES (?,?,?,?,?)",
-                (item.symbol.upper(), item.type, item.quantity, item.avg_cost, item.date_added),
-            )
-        else:
-            cursor = await db.execute(
-                "INSERT INTO portfolio (symbol, type, quantity, avg_cost) VALUES (?,?,?,?)",
-                (item.symbol.upper(), item.type, item.quantity, item.avg_cost),
-            )
-        await db.commit()
-        row = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (cursor.lastrowid,))).fetchone()
-        return dict(row)
+        return await db_add_portfolio_item(
+            db, item.symbol, item.type, item.quantity, item.avg_cost, item.date_added
+        )
 
 
 @app.put("/api/portfolio/{item_id}", tags=["portfolio"])
 async def update_portfolio(item_id: int, item: PortfolioUpdate):
     """Update an existing portfolio position."""
-    _PORTFOLIO_COLS = {"symbol", "type", "quantity", "avg_cost", "date_added"}
     async with get_db() as db:
-        existing = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
+        existing = await db_get_portfolio_item(db, item_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Portfolio item not found")
-        fields = {k: v for k, v in item.model_dump().items() if v is not None and k in _PORTFOLIO_COLS}
-        if not fields:
-            return dict(existing)
-        set_clause = ", ".join(f"{k}=?" for k in fields)
-        values = list(fields.values()) + [item_id]
-        await db.execute(f"UPDATE portfolio SET {set_clause} WHERE id=?", values)
-        await db.commit()
-        row = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
-        return dict(row)
+        return await db_update_portfolio_item(db, item_id, item.model_dump())
 
 
 @app.delete("/api/portfolio/{item_id}", tags=["portfolio"])
 async def delete_portfolio(item_id: int):
     """Remove a position from the portfolio."""
     async with get_db() as db:
-        existing = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
+        existing = await db_get_portfolio_item(db, item_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Portfolio item not found")
-        await db.execute("DELETE FROM portfolio WHERE id=?", (item_id,))
-        await db.commit()
+        await db_delete_portfolio_item(db, item_id)
         return {"deleted": item_id}
 
 
@@ -412,9 +400,7 @@ async def delete_portfolio(item_id: int):
 async def list_watchlist():
     """Return all watchlist entries."""
     async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM watchlist ORDER BY id DESC")
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return await db_list_watchlist(db)
 
 
 @app.post("/api/watchlist", tags=["watchlist"], status_code=201)
@@ -422,45 +408,31 @@ async def add_watchlist(item: WatchlistCreate):
     """Add a symbol to the watchlist."""
     async with get_db() as db:
         try:
-            cursor = await db.execute(
-                "INSERT INTO watchlist (symbol, target_price, stop_price, notes) VALUES (?,?,?,?)",
-                (item.symbol.upper(), item.target_price, item.stop_price, item.notes),
+            return await db_add_watchlist_item(
+                db, item.symbol, item.target_price, item.stop_price, item.notes
             )
-            await db.commit()
         except aiosqlite.IntegrityError:
             raise HTTPException(status_code=409, detail="Symbol already in watchlist")
-        row = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (cursor.lastrowid,))).fetchone()
-        return dict(row)
 
 
 @app.put("/api/watchlist/{item_id}", tags=["watchlist"])
 async def update_watchlist(item_id: int, item: WatchlistUpdate):
     """Update a watchlist entry."""
-    _WATCHLIST_COLS = {"target_price", "stop_price", "notes"}
     async with get_db() as db:
-        existing = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
+        existing = await db_get_watchlist_item(db, item_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Watchlist item not found")
-        fields = {k: v for k, v in item.model_dump().items() if v is not None and k in _WATCHLIST_COLS}
-        if not fields:
-            return dict(existing)
-        set_clause = ", ".join(f"{k}=?" for k in fields)
-        values = list(fields.values()) + [item_id]
-        await db.execute(f"UPDATE watchlist SET {set_clause} WHERE id=?", values)
-        await db.commit()
-        row = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
-        return dict(row)
+        return await db_update_watchlist_item(db, item_id, item.model_dump())
 
 
 @app.delete("/api/watchlist/{item_id}", tags=["watchlist"])
 async def delete_watchlist(item_id: int):
     """Remove an entry from the watchlist."""
     async with get_db() as db:
-        existing = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
+        existing = await db_get_watchlist_item(db, item_id)
         if not existing:
             raise HTTPException(status_code=404, detail="Watchlist item not found")
-        await db.execute("DELETE FROM watchlist WHERE id=?", (item_id,))
-        await db.commit()
+        await db_delete_watchlist_item(db, item_id)
         return {"deleted": item_id}
 
 
@@ -473,28 +445,16 @@ async def delete_watchlist(item_id: int):
 async def list_transactions():
     """Return all transactions."""
     async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM transactions ORDER BY id DESC")
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return await db_list_transactions(db)
 
 
 @app.post("/api/transactions", tags=["transactions"], status_code=201)
 async def add_transaction(item: TransactionCreate):
     """Record a new transaction."""
     async with get_db() as db:
-        if item.date:
-            cursor = await db.execute(
-                "INSERT INTO transactions (symbol, type, quantity, price, date) VALUES (?,?,?,?,?)",
-                (item.symbol.upper(), item.type, item.quantity, item.price, item.date),
-            )
-        else:
-            cursor = await db.execute(
-                "INSERT INTO transactions (symbol, type, quantity, price) VALUES (?,?,?,?)",
-                (item.symbol.upper(), item.type, item.quantity, item.price),
-            )
-        await db.commit()
-        row = await (await db.execute("SELECT * FROM transactions WHERE id=?", (cursor.lastrowid,))).fetchone()
-        return dict(row)
+        return await db_add_transaction(
+            db, item.symbol, item.type, item.quantity, item.price, item.date
+        )
 
 
 # ---------------------------------------------------------------------------
