@@ -17,7 +17,15 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from data.stock_data import get_news, get_stock_history, get_stock_info, search_tickers
+from data.stock_data import (
+    get_news,
+    get_stock_history,
+    get_stock_info,
+    search_tickers,
+    get_crypto_price,
+    get_crypto_market,
+    SUPPORTED_CRYPTO_SYMBOLS,
+)
 from data.market_data import (
     get_bist_stocks,
     get_crypto_data,
@@ -185,6 +193,43 @@ def search(
     except Exception as exc:
         logger.exception("Error searching tickers for query %r", q)
         raise HTTPException(status_code=500, detail="Search request failed.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Crypto data endpoints  (must register /market before /{symbol})
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/crypto/market", tags=["crypto"])
+def crypto_market():
+    """
+    Return BTC dominance (%) and total market cap (USD) from CoinGecko /global.
+    """
+    try:
+        return get_crypto_market()
+    except Exception as exc:
+        logger.exception("Error fetching crypto market data")
+        raise HTTPException(status_code=500, detail="Failed to retrieve crypto market data.") from exc
+
+
+@app.get("/api/crypto/{symbol}", tags=["crypto"])
+def crypto_symbol(symbol: str):
+    """
+    Return USD price, 24 h change %, and market cap for a single
+    cryptocurrency symbol via CoinGecko.
+
+    Supported symbols: BTC, ETH, BNB, SOL, AVAX.
+    """
+    try:
+        return get_crypto_price(symbol)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception("Error fetching crypto data for %s", symbol)
+        raise HTTPException(status_code=500, detail="Failed to retrieve crypto data.") from exc
 
 
 # ---------------------------------------------------------------------------
