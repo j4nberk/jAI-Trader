@@ -18,6 +18,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from data.stock_data import get_news, get_stock_history, get_stock_info, search_tickers
+from data.market_data import (
+    get_bist_stocks,
+    get_crypto_data,
+    get_market_news,
+    get_portfolio_prices,
+)
 from llm.analyzer import analyze
 from database.db import get_db, init_db
 
@@ -164,6 +170,114 @@ def search(
     except Exception as exc:
         logger.exception("Error searching tickers for query %r", q)
         raise HTTPException(status_code=500, detail="Search request failed.") from exc
+
+
+# ---------------------------------------------------------------------------
+# BIST stock quotes endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/stocks", tags=["market"])
+def stocks_quote(
+    symbols: str = Query(..., description="Comma-separated BIST ticker list, e.g. EREGL,THYAO,BIMAS"),
+):
+    """
+    Return price, daily change %, volume and 52-week high/low for BIST stocks.
+    Appends the .IS suffix automatically for yfinance.
+    """
+    try:
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        if not symbol_list:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        data = get_bist_stocks(symbol_list)
+        return {"stocks": data}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error fetching BIST stocks: %s", symbols)
+        raise HTTPException(status_code=500, detail="Failed to retrieve stock data.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Crypto quotes endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/crypto", tags=["market"])
+def crypto_quote(
+    symbols: str = Query(..., description="Comma-separated crypto symbols, e.g. BTC,ETH,BNB,SOL"),
+):
+    """
+    Return USD price, 24 h change %, market cap and dominance for
+    the requested cryptocurrencies via the free CoinGecko API.
+    """
+    try:
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        if not symbol_list:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        data = get_crypto_data(symbol_list)
+        return {"crypto": data}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error fetching crypto data: %s", symbols)
+        raise HTTPException(status_code=500, detail="Failed to retrieve crypto data.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Market news endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/news", tags=["market"])
+def market_news(
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of articles to return"),
+):
+    """
+    Return the latest financial news from KAP and BloombergHT RSS feeds,
+    sorted newest-first (title, source, date, link).
+    """
+    try:
+        articles = get_market_news(limit=limit)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as exc:
+        logger.exception("Error fetching market news")
+        raise HTTPException(status_code=500, detail="Failed to retrieve market news.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Portfolio live prices endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/portfolio/prices", tags=["portfolio"])
+async def portfolio_prices():
+    """
+    Return all portfolio positions enriched with current prices and P&L.
+    Supports BIST (yfinance .IS), CRYPTO (CoinGecko) and US (yfinance) assets.
+    """
+    try:
+        async with get_db() as db:
+            cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
+            rows = await cursor.fetchall()
+            items = [dict(row) for row in rows]
+        enriched = get_portfolio_prices(items)
+        total_cost = sum(i["cost_basis"] for i in enriched if i["cost_basis"] is not None)
+        total_value = sum(i["current_value"] for i in enriched if i["current_value"] is not None)
+        total_pnl = round(total_value - total_cost, 4) if total_cost else None
+        total_pnl_pct = round(total_pnl / total_cost * 100, 2) if (total_cost and total_pnl is not None) else None
+        return {
+            "positions": enriched,
+            "summary": {
+                "total_cost": round(total_cost, 4),
+                "total_value": round(total_value, 4),
+                "total_pnl": total_pnl,
+                "total_pnl_pct": total_pnl_pct,
+            },
+        }
+    except Exception as exc:
+        logger.exception("Error fetching portfolio prices")
+        raise HTTPException(status_code=500, detail="Failed to retrieve portfolio prices.") from exc
 
 
 # ---------------------------------------------------------------------------
