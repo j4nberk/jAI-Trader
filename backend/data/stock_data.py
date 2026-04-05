@@ -6,8 +6,89 @@ Fetches stock price history, company info, and financial news via yfinance and f
 
 from __future__ import annotations
 
+import logging
+
 import feedparser
+import requests
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Crypto helpers
+# ---------------------------------------------------------------------------
+
+SUPPORTED_CRYPTO_SYMBOLS: list[str] = ["BTC", "ETH", "BNB", "SOL", "AVAX"]
+
+_CRYPTO_IDS: dict[str, str] = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "BNB": "binancecoin",
+    "SOL": "solana",
+    "AVAX": "avalanche-2",
+}
+
+_COINGECKO_BASE = "https://api.coingecko.com/api/v3"
+
+
+def get_crypto_price(symbol: str) -> dict:
+    """
+    Return USD price, 24 h change %, and market cap for a single
+    cryptocurrency symbol using the free CoinGecko API.
+
+    Supported symbols: BTC, ETH, BNB, SOL, AVAX.
+    Raises ValueError for unsupported symbols.
+    """
+    sym = symbol.upper()
+    if sym not in _CRYPTO_IDS:
+        raise ValueError(
+            f"Unsupported symbol '{sym}'. Supported: {', '.join(SUPPORTED_CRYPTO_SYMBOLS)}"
+        )
+    coin_id = _CRYPTO_IDS[sym]
+    try:
+        resp = requests.get(
+            f"{_COINGECKO_BASE}/simple/price",
+            params={
+                "ids": coin_id,
+                "vs_currencies": "usd",
+                "include_market_cap": "true",
+                "include_24hr_change": "true",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get(coin_id, {})
+    except Exception:
+        logger.exception("CoinGecko price fetch failed for %s", sym)
+        data = {}
+
+    return {
+        "symbol": sym,
+        "coin_id": coin_id,
+        "price_usd": data.get("usd"),
+        "change_24h_pct": data.get("usd_24h_change"),
+        "market_cap_usd": data.get("usd_market_cap"),
+    }
+
+
+def get_crypto_market() -> dict:
+    """
+    Return BTC dominance (%) and total market cap (USD) from the
+    CoinGecko /global endpoint.
+    """
+    try:
+        resp = requests.get(f"{_COINGECKO_BASE}/global", timeout=15)
+        resp.raise_for_status()
+        global_data = resp.json().get("data", {})
+    except Exception:
+        logger.exception("CoinGecko global data fetch failed")
+        global_data = {}
+
+    dominance = global_data.get("market_cap_percentage", {})
+    return {
+        "btc_dominance_pct": dominance.get("btc"),
+        "total_market_cap_usd": global_data.get("total_market_cap", {}).get("usd"),
+    }
 
 
 def get_stock_info(symbol: str) -> dict:
