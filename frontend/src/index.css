@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base ──────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background-color: #0f172a;
+  color: #f1f5f9;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track  { background: #1e293b; }
+::-webkit-scrollbar-thumb  { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* ─── Utilities ─────────────────────────────────────────────────────────── */
+
+.card {
+  @apply bg-surface-card rounded-xl border border-slate-700/50 shadow-lg;
+}
+
+.badge-bullish  { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-900/60 text-emerald-300; }
+.badge-bearish  { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-900/60 text-red-300; }
+.badge-neutral  { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-300; }
+
+.btn-primary {
+  @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500
+         text-white font-medium text-sm transition-colors focus:outline-none focus:ring-2
+         focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-surface;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-surface-hover
+         text-slate-300 hover:text-white font-medium text-sm transition-colors;
+}
