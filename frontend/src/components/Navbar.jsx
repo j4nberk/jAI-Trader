@@ -2,16 +2,45 @@
  * src/components/Navbar.jsx — Top navigation bar
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 
 const links = [
-  { to: '/dashboard',       label: 'Dashboard',  icon: '📊' },
-  { to: '/analysis',        label: 'Analysis',   icon: '🔍' },
-  { to: '/market-analysis', label: 'Analiz',     icon: '🤖' },
-  { to: '/news',            label: 'News',        icon: '📰' },
-  { to: '/portfolio',       label: 'Portföy',    icon: '💼' },
+  { to: '/dashboard',        label: 'Dashboard', icon: '📊' },
+  { to: '/analysis',         label: 'Analysis',  icon: '🔍' },
+  { to: '/portfolio-analysis', label: 'Analiz',  icon: '🤖' },
+  { to: '/news',             label: 'News',       icon: '📰' },
+  { to: '/portfolio',        label: 'Portföy',   icon: '💼' },
 ];
+
+/** Toggle for the 09:30 automatic daily analysis trigger. State is persisted in localStorage. */
+function AutoAnalysisToggle() {
+  const [enabled, setEnabled] = useState(
+    () => localStorage.getItem('autoAnalysis') === 'true'
+  );
+
+  function toggle() {
+    const next = !enabled;
+    setEnabled(next);
+    localStorage.setItem('autoAnalysis', String(next));
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      title={enabled ? 'Otomatik analiz aktif — her sabah 09:30' : 'Otomatik analizi etkinleştir (09:30)'}
+      className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+        enabled
+          ? 'bg-brand-600/20 text-brand-400 border-brand-500/40 hover:bg-brand-600/30'
+          : 'text-slate-500 border-slate-700/50 hover:text-slate-300 hover:border-slate-600/60'
+      }`}
+    >
+      <span>⏰</span>
+      <span>09:30</span>
+      {enabled && <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />}
+    </button>
+  );
+}
 
 export default function Navbar() {
   return (
@@ -45,10 +74,13 @@ export default function Navbar() {
         ))}
       </ul>
 
-      {/* Status indicator */}
-      <div className="flex items-center gap-2 text-xs text-slate-500">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        Live
+      {/* Right side: auto-analysis toggle + live indicator */}
+      <div className="flex items-center gap-3">
+        <AutoAnalysisToggle />
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          Live
+        </div>
       </div>
     </nav>
   );
