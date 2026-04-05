@@ -9,6 +9,7 @@ const links = [
   { to: '/dashboard', label: 'Dashboard',  icon: '📊' },
   { to: '/analysis',  label: 'Analysis',   icon: '🔍' },
   { to: '/news',      label: 'News',        icon: '📰' },
+  { to: '/portfolio', label: 'Portföy',    icon: '💼' },
 ];
 
 export default function Navbar() {

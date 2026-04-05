@@ -8,6 +8,7 @@ import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import StockAnalysis from './pages/StockAnalysis';
 import News from './pages/News';
+import Portfolio from './pages/Portfolio';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/analysis" element={<StockAnalysis />} />
           <Route path="/analysis/:symbol" element={<StockAnalysis />} />
           <Route path="/news" element={<News />} />
+          <Route path="/portfolio" element={<Portfolio />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
