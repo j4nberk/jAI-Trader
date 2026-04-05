@@ -25,6 +25,7 @@ from data.market_data import (
     get_portfolio_prices,
 )
 from llm.analyzer import analyze
+from llm.portfolio_analyzer import analyze_portfolio
 from database.db import get_db, init_db
 
 import logging
@@ -304,6 +305,38 @@ def analyze_stock(
     except Exception as exc:
         logger.exception("Error analyzing stock %s", symbol)
         raise HTTPException(status_code=500, detail="Failed to generate stock analysis.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Portfolio AI analysis endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/analyze", tags=["analysis"])
+async def analyze_portfolio_endpoint(
+    news_limit: int = Query(default=20, ge=1, le=100, description="Number of news articles to include"),
+):
+    """
+    Return an AI-generated analysis for the full portfolio using Gemini.
+
+    Fetches portfolio positions from the database, enriches them with
+    current prices, pulls recent market news, then passes everything to
+    the Gemini LLM to produce actionable JSON recommendations.
+    """
+    try:
+        async with get_db() as db:
+            cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
+            rows = await cursor.fetchall()
+            portfolio = [dict(row) for row in rows]
+
+        prices = get_portfolio_prices(portfolio)
+        news = get_market_news(limit=news_limit)
+
+        result = analyze_portfolio(portfolio, prices, news)
+        return result
+    except Exception as exc:
+        logger.exception("Error running portfolio analysis")
+        raise HTTPException(status_code=500, detail="Failed to generate portfolio analysis.") from exc
 
 
 # ---------------------------------------------------------------------------
