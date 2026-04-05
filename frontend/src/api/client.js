@@ -22,3 +22,19 @@ export const fetchStockNews    = (symbol, limit = 10)        => api.get(`/api/st
 export const fetchAnalysis     = (symbol, period, interval)  =>
   api.get(`/api/stock/${symbol}/analyze`, { params: { period, interval } });
 export const searchTickers     = (q, limit = 10)             => api.get('/api/search', { params: { q, limit } });
+
+// Portfolio
+export const fetchPortfolio        = ()           => api.get('/api/portfolio');
+export const addPortfolioItem      = (data)       => api.post('/api/portfolio', data);
+export const updatePortfolioItem   = (id, data)   => api.put(`/api/portfolio/${id}`, data);
+export const deletePortfolioItem   = (id)         => api.delete(`/api/portfolio/${id}`);
+
+// Watchlist
+export const fetchWatchlist        = ()           => api.get('/api/watchlist');
+export const addWatchlistItem      = (data)       => api.post('/api/watchlist', data);
+export const updateWatchlistItem   = (id, data)   => api.put(`/api/watchlist/${id}`, data);
+export const deleteWatchlistItem   = (id)         => api.delete(`/api/watchlist/${id}`);
+
+// Transactions
+export const fetchTransactions     = ()           => api.get('/api/transactions');
+export const addTransaction        = (data)       => api.post('/api/transactions', data);

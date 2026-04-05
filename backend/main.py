@@ -7,15 +7,19 @@ FastAPI application entry point for jAI-Trader.
 from __future__ import annotations
 
 import os
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import List, Optional
 
+import aiosqlite
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from data.stock_data import get_news, get_stock_history, get_stock_info, search_tickers
 from llm.analyzer import analyze
+from database.db import get_db, init_db
 
 import logging
 
@@ -23,10 +27,18 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
 app = FastAPI(
     title="jAI-Trader API",
     description="Investment analysis API powered by FastAPI, yfinance and LLM",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Allow requests from the Electron / Vite dev server
@@ -37,6 +49,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+
+class PortfolioCreate(BaseModel):
+    symbol: str
+    type: str  # BIST | CRYPTO | US
+    quantity: float
+    avg_cost: float
+    date_added: Optional[str] = None
+
+
+class PortfolioUpdate(BaseModel):
+    symbol: Optional[str] = None
+    type: Optional[str] = None
+    quantity: Optional[float] = None
+    avg_cost: Optional[float] = None
+    date_added: Optional[str] = None
+
+
+class WatchlistCreate(BaseModel):
+    symbol: str
+    target_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class WatchlistUpdate(BaseModel):
+    target_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class TransactionCreate(BaseModel):
+    symbol: str
+    type: str  # BUY | SELL
+    quantity: float
+    price: float
+    date: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +190,164 @@ def analyze_stock(
     except Exception as exc:
         logger.exception("Error analyzing stock %s", symbol)
         raise HTTPException(status_code=500, detail="Failed to generate stock analysis.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Portfolio endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/portfolio", tags=["portfolio"])
+async def list_portfolio():
+    """Return all portfolio positions."""
+    async with get_db() as db:
+        cursor = await db.execute("SELECT * FROM portfolio ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+@app.post("/api/portfolio", tags=["portfolio"], status_code=201)
+async def add_portfolio(item: PortfolioCreate):
+    """Add a new position to the portfolio."""
+    async with get_db() as db:
+        if item.date_added:
+            cursor = await db.execute(
+                "INSERT INTO portfolio (symbol, type, quantity, avg_cost, date_added) VALUES (?,?,?,?,?)",
+                (item.symbol.upper(), item.type, item.quantity, item.avg_cost, item.date_added),
+            )
+        else:
+            cursor = await db.execute(
+                "INSERT INTO portfolio (symbol, type, quantity, avg_cost) VALUES (?,?,?,?)",
+                (item.symbol.upper(), item.type, item.quantity, item.avg_cost),
+            )
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (cursor.lastrowid,))).fetchone()
+        return dict(row)
+
+
+@app.put("/api/portfolio/{item_id}", tags=["portfolio"])
+async def update_portfolio(item_id: int, item: PortfolioUpdate):
+    """Update an existing portfolio position."""
+    _PORTFOLIO_COLS = {"symbol", "type", "quantity", "avg_cost", "date_added"}
+    async with get_db() as db:
+        existing = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Portfolio item not found")
+        fields = {k: v for k, v in item.model_dump().items() if v is not None and k in _PORTFOLIO_COLS}
+        if not fields:
+            return dict(existing)
+        set_clause = ", ".join(f"{k}=?" for k in fields)
+        values = list(fields.values()) + [item_id]
+        await db.execute(f"UPDATE portfolio SET {set_clause} WHERE id=?", values)
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
+        return dict(row)
+
+
+@app.delete("/api/portfolio/{item_id}", tags=["portfolio"])
+async def delete_portfolio(item_id: int):
+    """Remove a position from the portfolio."""
+    async with get_db() as db:
+        existing = await (await db.execute("SELECT * FROM portfolio WHERE id=?", (item_id,))).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Portfolio item not found")
+        await db.execute("DELETE FROM portfolio WHERE id=?", (item_id,))
+        await db.commit()
+        return {"deleted": item_id}
+
+
+# ---------------------------------------------------------------------------
+# Watchlist endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/watchlist", tags=["watchlist"])
+async def list_watchlist():
+    """Return all watchlist entries."""
+    async with get_db() as db:
+        cursor = await db.execute("SELECT * FROM watchlist ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+@app.post("/api/watchlist", tags=["watchlist"], status_code=201)
+async def add_watchlist(item: WatchlistCreate):
+    """Add a symbol to the watchlist."""
+    async with get_db() as db:
+        try:
+            cursor = await db.execute(
+                "INSERT INTO watchlist (symbol, target_price, stop_price, notes) VALUES (?,?,?,?)",
+                (item.symbol.upper(), item.target_price, item.stop_price, item.notes),
+            )
+            await db.commit()
+        except aiosqlite.IntegrityError:
+            raise HTTPException(status_code=409, detail="Symbol already in watchlist")
+        row = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (cursor.lastrowid,))).fetchone()
+        return dict(row)
+
+
+@app.put("/api/watchlist/{item_id}", tags=["watchlist"])
+async def update_watchlist(item_id: int, item: WatchlistUpdate):
+    """Update a watchlist entry."""
+    _WATCHLIST_COLS = {"target_price", "stop_price", "notes"}
+    async with get_db() as db:
+        existing = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Watchlist item not found")
+        fields = {k: v for k, v in item.model_dump().items() if v is not None and k in _WATCHLIST_COLS}
+        if not fields:
+            return dict(existing)
+        set_clause = ", ".join(f"{k}=?" for k in fields)
+        values = list(fields.values()) + [item_id]
+        await db.execute(f"UPDATE watchlist SET {set_clause} WHERE id=?", values)
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
+        return dict(row)
+
+
+@app.delete("/api/watchlist/{item_id}", tags=["watchlist"])
+async def delete_watchlist(item_id: int):
+    """Remove an entry from the watchlist."""
+    async with get_db() as db:
+        existing = await (await db.execute("SELECT * FROM watchlist WHERE id=?", (item_id,))).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Watchlist item not found")
+        await db.execute("DELETE FROM watchlist WHERE id=?", (item_id,))
+        await db.commit()
+        return {"deleted": item_id}
+
+
+# ---------------------------------------------------------------------------
+# Transactions endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/transactions", tags=["transactions"])
+async def list_transactions():
+    """Return all transactions."""
+    async with get_db() as db:
+        cursor = await db.execute("SELECT * FROM transactions ORDER BY id DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+@app.post("/api/transactions", tags=["transactions"], status_code=201)
+async def add_transaction(item: TransactionCreate):
+    """Record a new transaction."""
+    async with get_db() as db:
+        if item.date:
+            cursor = await db.execute(
+                "INSERT INTO transactions (symbol, type, quantity, price, date) VALUES (?,?,?,?,?)",
+                (item.symbol.upper(), item.type, item.quantity, item.price, item.date),
+            )
+        else:
+            cursor = await db.execute(
+                "INSERT INTO transactions (symbol, type, quantity, price) VALUES (?,?,?,?)",
+                (item.symbol.upper(), item.type, item.quantity, item.price),
+            )
+        await db.commit()
+        row = await (await db.execute("SELECT * FROM transactions WHERE id=?", (cursor.lastrowid,))).fetchone()
+        return dict(row)
 
 
 # ---------------------------------------------------------------------------
